@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Минималистичный комикс — Publish & View</title>
+<style>
+  /* --- общий минималистичный стиль (в духе telegraph) --- */
+  :root { --bg:#ffffff; --fg:#111; --muted:#666; --accent:#000; }
+  html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
+  .page { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; box-sizing:border-box; }
+
+  /* контейнер для создания (скрытые минимальные элементы) */
+  #createSection { max-width:760px; margin:30px auto; background:transparent; }
+  .field { margin-bottom:12px; }
+  input[type="text"], input[type="file"] { width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; font-size:15px; box-sizing:border-box; }
+  button.primary { padding:10px 14px; border-radius:8px; background:#111;color:#fff;border:0; cursor:pointer; font-weight:600; }
+
+  /* layout: top bar hidden until hover, minimal like telegra.ph */
+  .topbar { position:fixed; left:0; right:0; top:8px; display:flex; justify-content:center; pointer-events:none; }
+  .topbar .inner { pointer-events:auto; opacity:0.02; transition:opacity .18s ease; background:transparent; padding:6px 12px; border-radius:10px; }
+  body:hover .topbar .inner, .topbar .inner:focus-within { opacity:1; background:rgba(255,255,255,0.85); border:1px solid #eee; }
+
+  /* viewer */
+  #viewer { display:none; flex-direction:column; align-items:center; gap:12px; }
+  .meta { text-align:center; margin-top:6vh; }
+  .meta h1 { margin:0; font-size:20px; font-weight:600; }
+  .meta .author { color:var(--muted); font-size:14px; margin-top:6px; }
+
+  /* image area */
+  .image-frame { width:100%; max-width:980px; height:calc(100vh - 160px); display:flex; align-items:center; justify-content:center; position:relative; overflow:auto; background:transparent; }
+  .image-frame img { max-width:100%; max-height:100%; object-fit:contain; display:block; margin:auto; }
+
+  /* arrows overlay */
+  .nav-arrow {
+    position:fixed;
+    top:50%;
+    transform:translateY(-50%);
+    width:60px;height:60px;border-radius:50%;
+    background:rgba(0,0,0,0.04); display:flex;align-items:center;justify-content:center;
+    cursor:pointer; user-select:none;
+    transition:background .12s, transform .08s;
+    backdrop-filter: blur(4px);
+  }
+  .nav-arrow:hover { background:rgba(0,0,0,0.08); transform:translateY(-50%) scale(1.03); }
+  .nav-arrow.left { left:14px; }
+  .nav-arrow.right { right:14px; }
+
+  .nav-arrow svg { width:26px; height:26px; fill:var(--fg); opacity:0.85; }
+
+  /* small page indicator bottom center */
+  .pager {
+    position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
+    background:rgba(255,255,255,0.9); padding:6px 10px; border-radius:999px; font-size:13px; color:var(--muted);
+    box-shadow:0 4px 20px rgba(0,0,0,0.06);
+  }
+
+  /* utility: hidden class */
+  .hidden { display:none!important; }
+
+  /* responsive */
+  @media (max-width:640px) {
+    .nav-arrow { width:48px;height:48px; }
+    .image-frame { height:calc(100vh - 140px); }
+    .meta h1 { font-size:18px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR: скрытый минимал -->
+<div class="topbar">
+  <div class="inner">
+    <a href="#" id="goCreate" style="text-decoration:none;color:var(--fg);font-weight:600">Опубликовать</a>
+    &nbsp; • &nbsp;
+    <a href="#" id="goViewList" style="text-decoration:none;color:var(--muted)">Мои комиксы</a>
+  </div>
+</div>
+
+<!-- CREATE SECTION (видимое по-умолчанию) -->
+<main id="createSection" class="page">
+  <form id="comicForm" style="width:100%;">
+    <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;">
+      <div style="flex:1">
+        <div class="field"><input type="text" name="title" placeholder="Название комикса" required></div>
+        <div class="field"><input type="text" name="author" placeholder="Имя автора" required></div>
+      </div>
+      <div style="width:260px;">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:6px">Загрузить страницы</div>
+        <div class="field">
+          <input id="fileInput" type="file" name="pages" accept="image/*" multiple required>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button id="publishBtn" class="primary" type="submit">Опубликовать</button>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;color:var(--muted);font-size:13px">
+      Поддерживаются PNG/JPG. Порядок страниц — в том порядке, в котором ты загрузишь файлы.
+    </div>
+  </form>
+</main>
+
+<!-- VIEWER SECTION (скрыт до загрузки/перехода) -->
+<main id="viewer" class="page">
+  <div class="meta">
+    <h1 id="vTitle">Название</h1>
+    <div class="author" id="vAuthor">Автор</div>
+  </div>
+
+  <div class="image-frame" id="imageFrame" aria-live="polite">
+    <!-- image will be inserted here -->
+  </div>
+
+  <div class="pager" id="pager">— / —</div>
+</main>
+
+<!-- arrows -->
+<div class="nav-arrow left" id="arrowLeft" title="Назад (←)">
+  <svg viewBox="0 0 24 24"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+</div>
+<div class="nav-arrow right" id="arrowRight" title="Вперед (→)">
+  <svg viewBox="0 0 24 24"><path d="M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+</div>
+
+<script>
+/* ========== Client SPA logic ========== */
+
+const createSection = document.getElementById("createSection");
+const viewer = document.getElementById("viewer");
+const imageFrame = document.getElementById("imageFrame");
+const vTitle = document.getElementById("vTitle");
+const vAuthor = document.getElementById("vAuthor");
+const pager = document.getElementById("pager");
+const arrowLeft = document.getElementById("arrowLeft");
+const arrowRight = document.getElementById("arrowRight");
+const goCreate = document.getElementById("goCreate");
+const goViewList = document.getElementById("goViewList");
+
+let currentComic = null;
+let currentIndex = 0;
+let images = [];
+
+/* Show create by default */
+function showCreate() {
+  createSection.style.display = "block";
+  viewer.style.display = "none";
+  arrowLeft.style.display = "none";
+  arrowRight.style.display = "none";
+  pager.style.display = "none";
+}
+
+function showViewer() {
+  createSection.style.display = "none";
+  viewer.style.display = "flex";
+  arrowLeft.style.display = "flex";
+  arrowRight.style.display = "flex";
+  pager.style.display = "block";
+}
+
+/* Publish form */
+document.getElementById("comicForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById("publishBtn");
+  btn.disabled = true; btn.textContent = "Загружаю...";
+
+  const form = e.currentTarget;
+  const fd = new FormData(form);
+  try {
+    const resp = await fetch("/api/create", { method: "POST", body: fd });
+    if (!resp.ok) throw new Error("Ошибка сервера");
+    const json = await resp.json();
+    const id = json.id;
+    // load and show viewer for created comic
+    await loadAndShowComic(id);
+  } catch (err) {
+    alert("Ошибка при загрузке: " + err.message);
+    console.error(err);
+  } finally {
+    btn.disabled = false; btn.textContent = "Опубликовать";
+  }
+});
+
+/* Load comic metadata and images */
+async function loadAndShowComic(id) {
+  const res = await fetch(`/api/comic/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    alert("Комикс не найден");
+    return showCreate();
+  }
+  const comic = await res.json();
+  currentComic = comic;
+  images = comic.pages.map(fn => `/uploads/${comic.id}/${fn}`);
+  currentIndex = 0;
+  renderViewer();
+  showViewer();
+  // update topbar links
+  goCreate.blur();
+}
+
+/* Render current image & meta */
+function renderViewer() {
+  vTitle.textContent = currentComic.title || "Без названия";
+  vAuthor.textContent = currentComic.author || "Аноним";
+
+  imageFrame.innerHTML = "";
+  if (!images || images.length === 0) {
+    imageFrame.innerHTML = "<div style='color:var(--muted)'>Нет страниц</div>";
+    pager.textContent = "0 / 0";
+    return;
+  }
+
+  const img = document.createElement("img");
+  img.src = images[currentIndex];
+  img.alt = currentComic.title + " — страница " + (currentIndex + 1);
+  img.loading = "eager";
+
+  // When image is taller than viewport, use natural scroll of frame; otherwise center
+  img.addEventListener('load', () => {
+    // nothing complex — CSS handles max-width/max-height
+  });
+
+  imageFrame.appendChild(img);
+  pager.textContent = `${currentIndex + 1} / ${images.length}`;
+
+  // update arrow visibility
+  arrowLeft.style.visibility = currentIndex > 0 ? "visible" : "hidden";
+  arrowRight.style.visibility = currentIndex < images.length - 1 ? "visible" : "hidden";
+}
+
+/* Navigation handlers */
+function nextPage() {
+  if (!images || currentIndex >= images.length - 1) return;
+  currentIndex++;
+  renderViewer();
+}
+function prevPage() {
+  if (!images || currentIndex <= 0) return;
+  currentIndex--;
+  renderViewer();
+}
+arrowLeft.addEventListener("click", prevPage);
+arrowRight.addEventListener("click", nextPage);
+
+/* Keyboard navigation */
+window.addEventListener("keydown", (e) => {
+  if (viewer.style.display === "none") return;
+  if (e.key === "ArrowRight" || e.key === " ") nextPage();
+  if (e.key === "ArrowLeft") prevPage();
+});
+
+/* Click on image: next */
+imageFrame.addEventListener("click", (e) => {
+  // if clicked near left 25% go prev, if near right 25% go next, else toggle nothing
+  const w = imageFrame.clientWidth;
+  const x = e.clientX - imageFrame.getBoundingClientRect().left;
+  if (x < w * 0.25) prevPage();
+  else nextPage();
+});
+
+/* Simple touch swipe support */
+let touchStartX = null;
+let touchStartY = null;
+imageFrame.addEventListener("touchstart", (e) => {
+  const t = e.touches[0];
+  touchStartX = t.clientX; touchStartY = t.clientY;
+});
+imageFrame.addEventListener("touchend", (e) => {
+  if (touchStartX === null) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStartX;
+  const dy = t.clientY - touchStartY;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+    if (dx < 0) nextPage(); else prevPage();
+  }
+  touchStartX = null; touchStartY = null;
+});
+
+/* Topbar links */
+goCreate.addEventListener("click", (e) => { e.preventDefault(); showCreate(); });
+goViewList.addEventListener("click", (e) => { e.preventDefault(); alert('Пока нет списка — добавлю позже 😄'); });
+
+/* If URL has ?id=... open viewer directly */
+(function checkUrlOpen() {
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
+  if (id) {
+    loadAndShowComic(id).catch(()=> showCreate());
+  } else {
+    showCreate();
+  }
+})();
+</script>
+</body>
+</html>
